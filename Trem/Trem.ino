@@ -31,6 +31,7 @@ void setup() {
     Serial.print(".");
     delay(200);
   }
+  mqtt.subscribe("Topico-DSM14")
   Serial.println("\nConectado ao Broker!");
 }
 
@@ -40,4 +41,17 @@ mensagem+= "oi";
 mqtt.publish("Topico-DSM14" , mensagem.c_str());
 mqtt.loop();
 delay(1000);
+}
+
+
+void callback(char* topic, byte* payload, usigned int length){
+  string msg = "";
+  for(int i = 0; i < length; i++){
+    msg += (char) payload[i]
+  }
+  if(topic == "iluminacao" && msg == "Acender"){
+    digitalWrite(2,HIGH);
+    if(topic == "iluminacao" && msg == "Apagar"){
+    digitalWrite(2,LOW);
+  }
 }
