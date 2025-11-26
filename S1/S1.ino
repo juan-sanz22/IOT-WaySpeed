@@ -1,86 +1,95 @@
+
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include "env.h"
+#include "DHT.h"
+
+#define DHTPIN 15
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+#define LDR_PIN 34
+#define LED_PIN 2
+#define PRESENCA_PIN 27
 
 WiFiClientSecure client;
 PubSubClient mqtt(client);
 
-// Função de callback (chamada quando uma mensagem é recebida)
+
+// Função chamada quando chega uma mensagem no MQTT
 void callback(char* topic, byte* payload, unsigned int length) {
   String msg = "";
-  
   for (int i = 0; i < length; i++) {
-    msg += (char)payload[i];
+    msg += (char)payload[i];  // Converte os bytes recebidos em texto
   }
 
-  Serial.print("Mensagem recebida no tópico: ");
-  Serial.println(topic);
-  Serial.print("Conteúdo: ");
-  Serial.println(msg);
-
-  if (String(topic) == TOPIC_ILUM) {
+  // Esse IF é importante → só executa se o comando for para o S1
+  if (String(topic) == TOPIC_S1_ILUM) {
     if (msg == "Acender") {
-      digitalWrite(2, HIGH);
-      Serial.println("Luz ligada!");
+      digitalWrite(LED_PIN, HIGH);   // Liga LED da iluminação
     } 
     else if (msg == "Apagar") {
-      digitalWrite(2, LOW);
-      Serial.println("Luz desligada!");
+      digitalWrite(LED_PIN, LOW);    // Desliga LED
     }
   }
 }
 
+
+// Reconecta ao broker caso caia a conexão
 void reconnect() {
   while (!mqtt.connected()) {
-    Serial.print("Tentando conectar ao broker MQTT...");
-    String BoardID = "S2_" + String(random(0xffff), HEX);
-    
-    // Tenta conectar (usuário e senha vazios estão OK)
-    if (mqtt.connect(BoardID.c_str(), BROKER_USER, BROKER_PASS)) {
-      Serial.println("Conectado!");
-      mqtt.subscribe(TOPIC_ILUM);
+
+    // ID do dispositivo usado para conectar no broker
+    if (mqtt.connect("S1_DEVICE", BROKER_USER, BROKER_PASS)) {
+      
+      // S1 precisa escutar o tópico de iluminação
+      mqtt.subscribe(TOPIC_S1_ILUM);
+
     } else {
-      Serial.print("Falha, rc=");
-      Serial.print(mqtt.state());
-      Serial.println(" tentando novamente em 2 segundos...");
       delay(2000);
     }
   }
 }
 
+
+
 void setup() {
-  pinMode(2, OUTPUT);
   Serial.begin(115200);
 
-  client.setInsecure();  // SSL sem verificação de certificado
-  
-  Serial.println("Conectando ao WiFi...");
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(PRESENCA_PIN, INPUT);
 
-  Serial.println("\nWiFi conectado!");
-  Serial.print("IP local: ");
-  Serial.println(WiFi.localIP());
+  dht.begin();      // Inicia o sensor DHT11
+  client.setInsecure();  // MQTT com SSL sem verificação de certificado
+
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  while (WiFi.status() != WL_CONNECTED) { delay(200); }
 
   mqtt.setServer(BROKER_URL, BROKER_PORT);
   mqtt.setCallback(callback);
-  
-  reconnect(); // Conecta ao broker
+
+  reconnect();    // Conecta ao MQTT
 }
 
+
+
 void loop() {
-  if (!mqtt.connected()) {
-    reconnect();
-  }
+  if (!mqtt.connected()) reconnect();
+  mqtt.loop();  // Mantém conexão ativa
 
-  String mensagem = "Nome: Bittencourt - oi";
-  mqtt.publish(TOPIC_ILUM, mensagem.c_str());
+  // --- LEITURA DOS SENSORES ---
+  int ldr = analogRead(LDR_PIN);            // LDR (0–4095)
+  float temp = dht.readTemperature();       // Temperatura
+  float umid = dht.readHumidity();          // Umidade
+  int presenca = digitalRead(PRESENCA_PIN); // Sensor PIR (0 ou 1)
 
-  mqtt.loop();
+  // --- PUBLICAÇÃO NO MQTT ---
+  // (Esses publishes enviam os dados para o app e para o professor)
+  mqtt.publish(TOPIC_S1_ILUM_SENSOR, String(ldr).c_str());
+  mqtt.publish(TOPIC_S1_TEMP, String(temp).c_str());
+  mqtt.publish(TOPIC_S1_UMID, String(umid).c_str());
+  mqtt.publish(TOPIC_S1_PRESENCA, String(presenca).c_str());
+
   delay(2000);
 }
