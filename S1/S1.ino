@@ -1,10 +1,11 @@
-
+//Bibliotecas
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include "env.h"
 #include "DHT.h"
 
+//Definições dos pinos
 #define DHTPIN 15
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
@@ -17,14 +18,14 @@ WiFiClientSecure client;
 PubSubClient mqtt(client);
 
 
-// Função chamada quando chega uma mensagem no MQTT
+// função callback, que é chamada quando o ESP recebe um comando pelo MQTT.
 void callback(char* topic, byte* payload, unsigned int length) {
   String msg = "";
   for (int i = 0; i < length; i++) {
-    msg += (char)payload[i];  // Converte os bytes recebidos em texto
+    msg += (char)payload[i];  // Converte os bytes recebidos em texto e Ela verifica se a mensagem chegou no tópico de iluminação.
   }
 
-  // Esse IF é importante → só executa se o comando for para o S1
+  
   if (String(topic) == TOPIC_S1_ILUM) {
     if (msg == "Acender") {
       digitalWrite(LED_PIN, HIGH);   // Liga LED da iluminação
@@ -55,19 +56,19 @@ void reconnect() {
 
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(115200); // Inicia o serial
 
-  pinMode(LED_PIN, OUTPUT);
-  pinMode(PRESENCA_PIN, INPUT);
+  pinMode(LED_PIN, OUTPUT); 
+  pinMode(PRESENCA_PIN, INPUT); // Configura os pinos
 
-  dht.begin();      // Inicia o sensor DHT11
-  client.setInsecure();  // MQTT com SSL sem verificação de certificado
+  dht.begin();      
+  client.setInsecure(); // inicia o DHT
 
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) { delay(200); }
+  while (WiFi.status() != WL_CONNECTED) { delay(200); } // Conecta ao WiFi
 
   mqtt.setServer(BROKER_URL, BROKER_PORT);
-  mqtt.setCallback(callback);
+  mqtt.setCallback(callback); // Define o callback 
 
   reconnect();    // Conecta ao MQTT
 }
@@ -76,20 +77,19 @@ void setup() {
 
 void loop() {
   if (!mqtt.connected()) reconnect();
-  mqtt.loop();  // Mantém conexão ativa
+  mqtt.loop();  // Se desconectar, chama reconnect().
 
-  // --- LEITURA DOS SENSORES ---
+  //  lê os sensores
   int ldr = analogRead(LDR_PIN);            // LDR (0–4095)
   float temp = dht.readTemperature();       // Temperatura
   float umid = dht.readHumidity();          // Umidade
-  int presenca = digitalRead(PRESENCA_PIN); // Sensor PIR (0 ou 1)
+  int presenca = digitalRead(PRESENCA_PIN); // Sensor de presença 
 
-  // --- PUBLICAÇÃO NO MQTT ---
-  // (Esses publishes enviam os dados para o app e para o professor)
+  // Sensores conectado nos tópicos certos 
   mqtt.publish(TOPIC_S1_ILUM_SENSOR, String(ldr).c_str());
   mqtt.publish(TOPIC_S1_TEMP, String(temp).c_str());
   mqtt.publish(TOPIC_S1_UMID, String(umid).c_str());
   mqtt.publish(TOPIC_S1_PRESENCA, String(presenca).c_str());
 
-  delay(2000);
+  delay(2000);  // Envia a cada 2 segundos
 }
