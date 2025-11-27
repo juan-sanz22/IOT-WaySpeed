@@ -1,55 +1,101 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
-#include <env.h>
+#include <ESP32Servo.h>
+#include "env.h"
 
-WiFiClientSecure client;
-PubSubClient mqtt(client);
+#define SERVO_PIN 19
+#define PIR_PIN 21  // Escolha o pino digital que conecta o sensor PIR
 
+WiFiClientSecure wifiClient;
+PubSubClient mqtt(wifiClient);
+Servo servoMotor;
+
+// -------------------- VARIÁVEL DE ESTADO --------------------
+int servoState = 0; // 0 = sem presença, 1 = presença
+int pirState = 0;   // Estado atual do sensor PIR
+
+// -------------------- CALLBACK MQTT --------------------
+void mqttCallback(char* topic, byte* message, unsigned int length) {
+  String msg = "";
+  for (unsigned int i = 0; i < length; i++) msg += (char)message[i];
+
+  if (msg == "1" && servoState == 0) { // Presença detectada e servo ainda em 0°
+    servoMotor.write(90);
+    servoState = 1;
+  } 
+  else if (msg == "0" && servoState == 1) { // Sem presença e servo ainda em 90°
+    servoMotor.write(0);
+    servoState = 0;
+  }
+}
+
+// -------------------- RECONNECT MQTT --------------------
+void reconnectMQTT() {
+  while (!mqtt.connected()) {
+    Serial.println("Conectando ao MQTT...");
+    String clientId = "ESP32_Servo_" + String(random(0xffff), HEX);
+    if (mqtt.connect(clientId.c_str(), BROKER_USER, BROKER_PASS)) {
+      mqtt.subscribe(TOPIC_PRESENCA1);
+      Serial.println("Conectado e inscrito no tópico PRESENCA1!");
+    } else {
+      Serial.print("Falha, rc=");
+      Serial.println(mqtt.state());
+      delay(2000);
+    }
+  }
+}
+
+// -------------------- SETUP --------------------
 void setup() {
   Serial.begin(115200);
-  client.setInsecure();
-  Serial.println("Conectando ao WiFi"); //apresenta a mensagem na tela
-  WiFi.begin(WIFI_SSID,WIFI_PASS); //tenta conectar na rede
-  while(WiFi.status() != WL_CONNECTED){
-    Serial.print("."); // mostra "....."
-    delay(200);
-  }
-  Serial.println("\nConectado com Sucesso!");
 
-  Serial.println("Conectando ao Broker...");
+  // Servo
+  servoMotor.attach(SERVO_PIN);
+  servoMotor.write(0); // Começa em 0°
+  servoState = 0;
+
+  // PIR
+  pinMode(PIR_PIN, INPUT);
+
+  // WiFi
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.println("Conectando ao WiFi...");
+  while (WiFi.status() != WL_CONNECTED) {
+      Serial.print(".");
+      delay(500);
+  }
+  Serial.println("\nWiFi conectado!");
+
+  // MQTT
+  wifiClient.setInsecure();  // Desativa verificação SSL (só para testes)
   mqtt.setServer(BROKER_URL, BROKER_PORT);
-  String BoardID = "s2";
-  while(!mqtt.connected()){
-    BoardID += String(random(0xffff),HEX);
-    mqtt.connect(BoardID.c_str() , BROKER_USER, BROKER_PORT;
-    Serial.print(".");
-    delay(200);
-  }
-  Serial.println("\nConectado ao Broker!");
-  mqtt.subscribe(TOPIC_ILUM);
+  mqtt.setCallback(mqttCallback);
+  reconnectMQTT();
 }
 
+// -------------------- LOOP --------------------
 void loop() {
-String mensagem = "Nome:Juan";
-mensagem+= "oi";
-mqtt.publish(TOPIC_ILUM , mensagem.c_str());
-mqtt.loop();
-delay(1000);
-}
+  if (!mqtt.connected()) reconnectMQTT();
+  mqtt.loop();
 
+  // --- Leitura do PIR ---
+  int leitura = digitalRead(PIR_PIN); // 0 = sem presença, 1 = presença
+  if (leitura != pirState) {          // Só publica se houver mudança
+    pirState = leitura;
 
-void callback(char* topic, byte* payload, usigned int length){
-  string msg = "";
-  for(int i = 0; i < length; i++){
-    msg += (char) payload[i]
+    // Publica no MQTT
+    mqtt.publish(TOPIC_PRESENCA1, String(pirState).c_str());
+
+    // Controla o servo localmente
+    if (pirState == 1 && servoState == 0) {
+      servoMotor.write(90);
+      servoState = 1;
+    } else if (pirState == 0 && servoState == 1) {
+      servoMotor.write(0);
+      servoState = 0;
+    }
   }
-  if(topic == TOPIC_ILUM && msg == "Acender"){
-    digitalWrite(2,HIGH);
-    if(topic == TOPIC_ILUM && msg == "Apagar"){
-  if(topic == TOPIC_ILUM && msg == "Acender"){
-    digitalWrite(2,HIGH);
-    if(topic == TOPIC_ILUM && msg == "Apagar"){
-    digitalWrite(2,LOW);
-  }
+
+  delay(100); // Pequena pausa para estabilidade do PIR
 }
