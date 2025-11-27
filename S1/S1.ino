@@ -18,11 +18,11 @@ WiFiClientSecure client;
 PubSubClient mqtt(client);
 
 
-// função callback, que é chamada quando o ESP recebe um comando pelo MQTT.
+// função callback,é chamada toda vez que o ESP recebe um comando pelo MQTT.
 void callback(char* topic, byte* payload, unsigned int length) {
   String msg = "";
   for (int i = 0; i < length; i++) {
-    msg += (char)payload[i];  // Converte os bytes recebidos em texto e Ela verifica se a mensagem chegou no tópico de iluminação.
+    msg += (char)payload[i];  // Ela verifica se a mensagem chegou no tópico de iluminação.
   }
 
   
@@ -44,7 +44,7 @@ void reconnect() {
     // ID do dispositivo usado para conectar no broker
     if (mqtt.connect("S1_DEVICE", BROKER_USER, BROKER_PASS)) {
       
-      // S1 precisa escutar o tópico de iluminação
+     
       mqtt.subscribe(TOPIC_S1_ILUM);
 
     } else {
