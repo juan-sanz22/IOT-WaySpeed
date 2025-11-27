@@ -3,7 +3,7 @@
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include "env.h"
-#include "DHT.h"
+#include "DHT.h" // Lê sensor de temperatura e umidade
 
 // Pino do DHT11
 #define DHTPIN 4
@@ -29,7 +29,6 @@ WiFiClientSecure client;
 PubSubClient mqtt(client);
 
 
-// Função callback é chamada sempre que chega comando pelo MQTT
 void callback(char* topic, byte* payload, unsigned int length) {
   String msg = "";
 
