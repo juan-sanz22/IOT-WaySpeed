@@ -1,95 +1,140 @@
-//Bibliotecas
+// Bibliotecas 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include "env.h"
 #include "DHT.h"
 
-//Definições dos pinos
-#define DHTPIN 15
+// Pino do DHT11
+#define DHTPIN 4
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
+// Pinos do sensor ultrassônico
+#define TRIG_PIN 22
+#define ECHO_PIN 23
+
+// LED normal
+#define LED_PIN 19
+
+// Sensor LDR
 #define LDR_PIN 34
-#define LED_PIN 2
-#define PRESENCA_PIN 27
+
+// Pinos do LED RGB
+#define R_PIN 14
+#define G_PIN 26
+#define B_PIN 25
 
 WiFiClientSecure client;
 PubSubClient mqtt(client);
 
 
-// função callback,é chamada toda vez que o ESP recebe um comando pelo MQTT.
+// Função callback é chamada sempre que chega comando pelo MQTT
 void callback(char* topic, byte* payload, unsigned int length) {
   String msg = "";
+
+  // Converte a mensagem recebida para texto
   for (int i = 0; i < length; i++) {
-    msg += (char)payload[i];  // Ela verifica se a mensagem chegou no tópico de iluminação.
+    msg += (char)payload[i];
   }
 
-  
+  // Se a mensagem for do tópico de iluminação do S1
   if (String(topic) == TOPIC_S1_ILUM) {
+
+    // Liga o LED e acende o RGB em vermelho
     if (msg == "Acender") {
-      digitalWrite(LED_PIN, HIGH);   // Liga LED da iluminação
-    } 
+      digitalWrite(LED_PIN, HIGH);
+      digitalWrite(R_PIN, 255);
+      digitalWrite(G_PIN, 0);
+      digitalWrite(B_PIN, 0);
+    }
+
+    // Desliga tudo
     else if (msg == "Apagar") {
-      digitalWrite(LED_PIN, LOW);    // Desliga LED
+      digitalWrite(LED_PIN, LOW);
+      digitalWrite(R_PIN, 0);
+      digitalWrite(G_PIN, 0);
+      digitalWrite(B_PIN, 0);
     }
   }
 }
 
 
-// Reconecta ao broker caso caia a conexão
+// Função que reconecta ao servidor MQTT quando a conexão cai
 void reconnect() {
   while (!mqtt.connected()) {
 
-    // ID do dispositivo usado para conectar no broker
+    // Tenta conectar
     if (mqtt.connect("S1_DEVICE", BROKER_USER, BROKER_PASS)) {
-      
-     
+
+      // Quando conecta, volta a escutar o tópico de iluminação
       mqtt.subscribe(TOPIC_S1_ILUM);
 
     } else {
-      delay(2000);
+      delay(2000);  // Aguarda e tenta de novo
     }
   }
 }
 
 
-
 void setup() {
-  Serial.begin(115200); // Inicia o serial
+  Serial.begin(115200);                // Inicia serial para depuração
 
-  pinMode(LED_PIN, OUTPUT); 
-  pinMode(PRESENCA_PIN, INPUT); // Configura os pinos
+  pinMode(LED_PIN, OUTPUT);            // LED normal
+  pinMode(TRIG_PIN, OUTPUT);           // Trigger do ultrassônico
+  pinMode(ECHO_PIN, INPUT);            // Echo do ultrassônico
 
-  dht.begin();      
-  client.setInsecure(); // inicia o DHT
+  pinMode(R_PIN, OUTPUT);              // LED RGB Vermelho
+  pinMode(G_PIN, OUTPUT);              // LED RGB Verde
+  pinMode(B_PIN, OUTPUT);              // LED RGB Azul
 
+  dht.begin();                          // Inicializa o DHT11
+  client.setInsecure();                 // Permite MQTT com SSL sem certificado
+
+  // Conecta ao WiFi
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  while (WiFi.status() != WL_CONNECTED) { delay(200); } // Conecta ao WiFi
+  while (WiFi.status() != WL_CONNECTED) { delay(200); }
 
+  // Configura o servidor MQTT e define o callback
   mqtt.setServer(BROKER_URL, BROKER_PORT);
-  mqtt.setCallback(callback); // Define o callback 
+  mqtt.setCallback(callback);
 
-  reconnect();    // Conecta ao MQTT
+  reconnect();                          // Conecta ao MQTT
 }
 
 
+// Função para medir distância com o ultrassônico
+float medirDistancia() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(TRIG_PIN, HIGH);         // Pulso para ativar o sensor
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duracao = pulseIn(ECHO_PIN, HIGH);  // Mede o tempo do eco
+
+  float distancia = duracao * 0.034 / 2;   // Fórmula padrão em CM
+
+  return distancia;
+}
+
 
 void loop() {
-  if (!mqtt.connected()) reconnect();
-  mqtt.loop();  // Se desconectar, chama reconnect().
+  if (!mqtt.connected()) reconnect();   // Se cair, reconecta
+  mqtt.loop();                          // Mantém a conexão ativa
 
-  //  lê os sensores
-  int ldr = analogRead(LDR_PIN);            // LDR (0–4095)
-  float temp = dht.readTemperature();       // Temperatura
-  float umid = dht.readHumidity();          // Umidade
-  int presenca = digitalRead(PRESENCA_PIN); // Sensor de presença 
+  // Lê todos os sensores
+  float temp = dht.readTemperature();   // Temperatura
+  float umid = dht.readHumidity();      // Umidade
+  int ldr = analogRead(LDR_PIN);        // Luminosidade
+  float distancia = medirDistancia();   // Distância do ultrassônico
 
-  // Sensores conectado nos tópicos certos 
-  mqtt.publish(TOPIC_S1_ILUM_SENSOR, String(ldr).c_str());
+  // Publica cada valor no tópico correspondente
   mqtt.publish(TOPIC_S1_TEMP, String(temp).c_str());
   mqtt.publish(TOPIC_S1_UMID, String(umid).c_str());
-  mqtt.publish(TOPIC_S1_PRESENCA, String(presenca).c_str());
+  mqtt.publish(TOPIC_S1_LDR, String(ldr).c_str());
+  mqtt.publish(TOPIC_S1_DISTANCE, String(distancia).c_str());
 
   delay(2000);  // Envia a cada 2 segundos
 }
